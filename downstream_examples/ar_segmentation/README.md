@@ -22,10 +22,17 @@ bash download_data.sh
 
 # Create CSV indices for training data
 python create_ar_csv.py
+
+# unzip masks stored in data.tar.gz in data
+cd assets/surya-bench-ar-segmentation
+mkdir -p data
+tar -xvzf data.tar.gz -C data
 ```
 
 ## Training
+
 ```bash
+cd downstream_examples/ar_segmentation
 # Single GPU training
 torchrun --nnodes=1 --nproc_per_node=1 --standalone finetune.py
 
@@ -122,11 +129,6 @@ ar_segmentation/
 ├── dataset.py                  # Dataset class implementation
 ├── models.py                   # Model definitions
 └── assets/                     # Data indices and downloaded data
-    ├── ar_2011.csv
-    ├── ar_2012.csv
-    ├── ar_2013.csv
-    ├── ar_2014.csv
-    └── surya-bench-ar-segmentation/  # Downloaded dataset
 ```
 
 ## Pre-trained Models
