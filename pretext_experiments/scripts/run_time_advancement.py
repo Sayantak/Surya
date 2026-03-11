@@ -27,6 +27,7 @@ from pretext_experiments.pretext.objectives.time_advancement import TimeAdvancem
 from pretext_experiments.pretext.training.checkpointing import create_run_dir
 from pretext_experiments.pretext.training.logging import JsonlLogger, setup_surya_logger, write_hparams
 from pretext_experiments.pretext.training.trainer import Trainer, TrainerConfig
+from pretext_experiments.pretext.eval.surya_viz import visualize_model_predictions
 
 
 # ------------------------------------------------------------
@@ -132,6 +133,38 @@ def _build_train_dataloader(
         collate_fn=custom_collate_fn,
     )
 
+def _build_dataset(
+    *,
+    index_csv: Path,
+    dataset_root: Path,
+    config: dict[str, Any],
+    scalers: dict[str, Any],
+    rollout_steps: int,
+    phase: str = "valid",
+) -> HelioNetCDFDataset:
+    data_cfg = config["data"]
+
+    ds = HelioNetCDFDataset(
+        index_path=str(index_csv),
+        time_delta_input_minutes=data_cfg["time_delta_input_minutes"],
+        time_delta_target_minutes=data_cfg["time_delta_target_minutes"],
+        n_input_timestamps=len(data_cfg["time_delta_input_minutes"]),
+        rollout_steps=rollout_steps,
+        channels=data_cfg["sdo_channels"],
+        drop_hmi_probability=data_cfg["drop_hmi_probability"],
+        num_mask_aia_channels=data_cfg["num_mask_aia_channels"],
+        use_latitude_in_learned_flow=data_cfg["use_latitude_in_learned_flow"],
+        scalers=scalers,
+        phase=phase,
+        pooling=data_cfg.get("pooling", None),
+        random_vert_flip=False,
+        sdo_data_root_path=str(dataset_root),
+    )
+
+    if len(ds) == 0:
+        raise RuntimeError(f"Visualization dataset has length 0 for index: {index_csv}")
+
+    return ds
 
 def _coerce_includes(date: str, hour_prefix: str, includes: List[str] | None) -> List[str]:
     """
@@ -246,10 +279,10 @@ def main() -> None:
     parser.add_argument(
         "--dataset-path",
         type=str,
-        default="../../data/core-sdo",
+        default="pretext_experiments/data/core-sdo",
         help=(
             "Local root directory containing downloaded .nc files (recursively). "
-            "Example: ../../data/core-sdo or ../../data/core-sdo/2024/12"
+            "Example: pretext_experiments/data/core-sdo or pretext_experiments/data/core-sdo/2024/12"
         ),
     )
 
@@ -290,13 +323,13 @@ def main() -> None:
     parser.add_argument(
         "--full-index-csv",
         type=str,
-        default="../outputs/index/full_index.csv",
+        default="pretext_experiments/outputs/index/full_index.csv",
         help="Where to write the full index CSV when --prepare-data is set.",
     )
     parser.add_argument(
         "--split-out-dir",
         type=str,
-        default="../outputs/index",
+        default="pretext_experiments/outputs/index",
         help="Where to write train/val/test index CSVs when --prepare-data is set.",
     )
     parser.add_argument(
@@ -336,13 +369,13 @@ def main() -> None:
         help="If > 0, use day-holdout split with preceding N days as val (only used when --prepare-data).",
     )
 
-    parser.add_argument("--model-dir", type=str, default="../../data/Surya-1.0")
+    parser.add_argument("--model-dir", type=str, default="pretext_experiments/data/Surya-1.0")
 
     # Default train index path (used when NOT preparing data)
     parser.add_argument(
         "--train-index-csv",
         type=str,
-        default="../outputs/index/train_index.csv",
+        default="pretext_experiments/outputs/index/train_index.csv",
     )
 
     parser.add_argument(
@@ -382,7 +415,7 @@ def main() -> None:
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--ckpt-every", type=int, default=200)
 
-    parser.add_argument("--runs-dir", type=str, default="../outputs/runs")
+    parser.add_argument("--runs-dir", type=str, default="pretext_experiments/outputs/runs")
     parser.add_argument("--run-name", type=str, default="")
 
     parser.add_argument(
@@ -390,6 +423,36 @@ def main() -> None:
         type=int,
         default=1,
         help="Dataset rollout_steps (1 matches Surya test baseline).",
+    )
+
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Run post-training visualization on a few samples."
+    )
+
+    parser.add_argument(
+        "--viz-index-csv",
+        type=str,
+        default="",
+        help=(
+            "Optional index CSV to use for visualization. "
+            "If empty, uses val_index.csv when --prepare-data is set, otherwise train_index.csv."
+        ),
+    )
+
+    parser.add_argument(
+        "--viz-batches",
+        type=int,
+        default=8,
+        help="Number of batches to visualize."
+    )
+
+    parser.add_argument(
+        "--viz-save-path",
+        type=str,
+        default="",
+        help="Optional output image path. If empty, saves into the run directory."
     )
 
     args = parser.parse_args()
@@ -452,9 +515,13 @@ def main() -> None:
         # (typically <dataset_root>/<YYYY>/<MM>), and the index paths are relative to that.
         dataset_root = prepared.dataset_root
         train_index_csv = prepared.train_index_csv
+        val_index_csv = prepared.val_index_csv
+        test_index_csv = prepared.test_index_csv
 
         logger.info("Prepared dataset root: %s", dataset_root)
         logger.info("Prepared train index CSV: %s", train_index_csv)
+        logger.info("Prepared val index CSV: %s", val_index_csv)
+        logger.info("Prepared test index CSV: %s", test_index_csv)
 
     else:
         # Original behavior: require dataset-path and train-index-csv to exist
@@ -466,9 +533,13 @@ def main() -> None:
             raise FileNotFoundError(
                 f"Train index CSV not found: {train_index_csv}. Run make_index.py + split_by_time.py first."
             )
+        val_index_csv = Path(args.split_out_dir) / "val_index.csv"
+        test_index_csv = Path(args.split_out_dir) / "test_index.csv"
 
         logger.info("Dataset root: %s", dataset_root)
         logger.info("Train index CSV: %s", train_index_csv)
+        logger.info("Prepared val index CSV: %s", val_index_csv)
+        logger.info("Prepared test index CSV: %s", test_index_csv)
 
     # ------------------------------------------------------------
     # Hparams logging
@@ -558,7 +629,20 @@ def main() -> None:
     trainer = Trainer(run_dir=run_dir, config=trainer_cfg, logger=logger, metrics_logger=metrics_logger)
 
     objective = TimeAdvancementObjective(reduce="mean")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if args.optim == "adamw":
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+        )
+    elif args.optim == "sgd":
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=args.lr,
+            momentum=0.9,
+        )
+    else:
+        raise ValueError(f"Unknown optimizer: {args.optim}")
 
     final_ckpt = trainer.fit_n_steps(
         model=model,
@@ -574,6 +658,52 @@ def main() -> None:
     )
 
     logger.info("Finished. Final checkpoint: %s", final_ckpt)
+
+    if args.visualize:
+        if args.viz_index_csv.strip():
+            viz_index_csv = Path(args.viz_index_csv)
+        else:
+            if args.prepare_data:
+                viz_index_csv = val_index_csv
+            else:
+                viz_index_csv = train_index_csv
+
+        if not viz_index_csv.exists():
+            raise FileNotFoundError(f"Visualization index CSV not found: {viz_index_csv}")
+
+        viz_dataset = _build_dataset(
+            index_csv=viz_index_csv,
+            dataset_root=dataset_root,
+            config=config,
+            scalers=scalers,
+            rollout_steps=int(args.rollout_steps),
+            phase="valid" if viz_index_csv == val_index_csv else "train",
+        )
+
+        viz_save_path = (
+            Path(args.viz_save_path)
+            if args.viz_save_path.strip()
+            else Path(run_dir) / "prediction_samples.png"
+        )
+
+        viz_device = args.device if (args.device == "cpu" or torch.cuda.is_available()) else "cpu"
+
+        state = torch.load(final_ckpt, map_location="cpu")
+        model.load_state_dict(state)
+        model.eval()
+
+        mean_loss = visualize_model_predictions(
+            model=model,
+            dataset=viz_dataset,
+            device=viz_device,
+            rollout=int(args.rollout_steps),
+            n_batches=int(args.viz_batches),
+            save_path=str(viz_save_path),
+        )
+
+        logger.info("Visualization saved to: %s", viz_save_path)
+        logger.info("Visualization mean loss: %.6f", mean_loss)
+    
     print(f"Run complete.\nRun dir: {run_dir}\nFinal checkpoint: {final_ckpt}")
 
 
