@@ -27,7 +27,7 @@ from pretext_experiments.pretext.objectives.time_advancement import TimeAdvancem
 from pretext_experiments.pretext.training.checkpointing import create_run_dir
 from pretext_experiments.pretext.training.logging import JsonlLogger, setup_surya_logger, write_hparams
 from pretext_experiments.pretext.training.trainer import Trainer, TrainerConfig
-from pretext_experiments.pretext.eval.surya_viz import visualize_model_predictions
+from pretext_experiments.pretext.eval.surya_viz import visualize_batch_from_dataloader
 
 
 # ------------------------------------------------------------
@@ -165,6 +165,37 @@ def _build_dataset(
         raise RuntimeError(f"Visualization dataset has length 0 for index: {index_csv}")
 
     return ds
+
+def _build_eval_dataloader(
+    *,
+    index_csv: Path,
+    dataset_root: Path,
+    config: dict[str, Any],
+    scalers: dict[str, Any],
+    num_workers: int,
+    pin_memory: bool,
+    rollout_steps: int,
+    phase: str = "valid",
+) -> DataLoader:
+    ds = _build_dataset(
+        index_csv=index_csv,
+        dataset_root=dataset_root,
+        config=config,
+        scalers=scalers,
+        rollout_steps=rollout_steps,
+        phase=phase,
+    )
+
+    return DataLoader(
+        ds,
+        shuffle=False,
+        batch_size=1,
+        num_workers=num_workers,
+        prefetch_factor=None if num_workers == 0 else 2,
+        pin_memory=pin_memory,
+        drop_last=False,
+        collate_fn=custom_collate_fn,
+    )
 
 def _coerce_includes(date: str, hour_prefix: str, includes: List[str] | None) -> List[str]:
     """
@@ -609,6 +640,32 @@ def main() -> None:
         rollout_steps=int(args.rollout_steps),
     )
 
+    viz_dl = None
+    if args.visualize:
+        if args.viz_index_csv.strip():
+            viz_index_csv = Path(args.viz_index_csv)
+        else:
+            if args.prepare_data:
+                viz_index_csv = Path(args.full_index_csv)
+            else:
+                viz_index_csv = train_index_csv
+
+        if not viz_index_csv.exists():
+            raise FileNotFoundError(f"Visualization index CSV not found: {viz_index_csv}")
+
+        viz_phase = "valid" if args.prepare_data else "train"
+
+        viz_dl = _build_eval_dataloader(
+            index_csv=viz_index_csv,
+            dataset_root=dataset_root,
+            config=config,
+            scalers=scalers,
+            num_workers=0,  # safer and lighter for viz
+            pin_memory=(args.device == "cuda" and torch.cuda.is_available()),
+            rollout_steps=int(args.rollout_steps),
+            phase=viz_phase,
+        )
+
     # ------------------------------------------------------------
     # Trainer
     # ------------------------------------------------------------
@@ -659,27 +716,7 @@ def main() -> None:
 
     logger.info("Finished. Final checkpoint: %s", final_ckpt)
 
-    if args.visualize:
-        if args.viz_index_csv.strip():
-            viz_index_csv = Path(args.viz_index_csv)
-        else:
-            if args.prepare_data:
-                viz_index_csv = val_index_csv
-            else:
-                viz_index_csv = train_index_csv
-
-        if not viz_index_csv.exists():
-            raise FileNotFoundError(f"Visualization index CSV not found: {viz_index_csv}")
-
-        viz_dataset = _build_dataset(
-            index_csv=viz_index_csv,
-            dataset_root=dataset_root,
-            config=config,
-            scalers=scalers,
-            rollout_steps=int(args.rollout_steps),
-            phase="valid" if viz_index_csv == val_index_csv else "train",
-        )
-
+    if args.visualize and viz_dl is not None:
         viz_save_path = (
             Path(args.viz_save_path)
             if args.viz_save_path.strip()
@@ -688,21 +725,17 @@ def main() -> None:
 
         viz_device = args.device if (args.device == "cpu" or torch.cuda.is_available()) else "cpu"
 
-        state = torch.load(final_ckpt, map_location="cpu")
-        model.load_state_dict(state)
         model.eval()
-
-        mean_loss = visualize_model_predictions(
+        batch_loss = visualize_batch_from_dataloader(
             model=model,
-            dataset=viz_dataset,
+            dataloader=viz_dl,
             device=viz_device,
             rollout=int(args.rollout_steps),
-            n_batches=int(args.viz_batches),
             save_path=str(viz_save_path),
         )
 
         logger.info("Visualization saved to: %s", viz_save_path)
-        logger.info("Visualization mean loss: %.6f", mean_loss)
+        logger.info("Visualization batch loss: %.6f", batch_loss)
     
     print(f"Run complete.\nRun dir: {run_dir}\nFinal checkpoint: {final_ckpt}")
 

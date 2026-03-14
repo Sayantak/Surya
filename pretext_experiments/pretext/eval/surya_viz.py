@@ -49,21 +49,20 @@ def batch_step(
     rollout: int = 0,
 ) -> Tuple[float, List[SDOImage]]:
     """
-    Replicates Surya test batch_step behaviour.
+    Replicates Surya test batch_step behaviour for visualization.
 
     Returns
     -------
     loss
-    list[SDOImage] containing inputs and predictions
+    list[SDOImage] containing:
+        [Input t, Input t+delta, GT t+2delta, Pred t+2delta]
     """
 
     loss = 0.0
     n_samples_x_steps = 0
     data_returned: List[SDOImage] = []
 
-    forecast_hat = None
-
-    # record inputs
+    # record the two input frames
     for t_idx in range(2):
         timestamp = np.datetime_as_string(
             batch_metadata["timestamps_input"][0][t_idx], unit="s"
@@ -78,52 +77,96 @@ def batch_step(
             )
         )
 
-    for step in range(rollout + 1):
+    # run one forward pass
+    curr_batch = {
+        key: batch_data[key].to(device)
+        for key in ["ts", "time_delta_input"]
+    }
 
-        if step == 0:
-            curr_batch = {
-                key: batch_data[key].to(device)
-                for key in ["ts", "time_delta_input"]
-            }
+    forecast_hat = model(curr_batch)
 
-        else:
-            if forecast_hat is not None:
-                curr_batch["ts"] = torch.cat(
-                    (
-                        curr_batch["ts"][:, :, 1:, ...],
-                        forecast_hat[:, :, None, ...],
-                    ),
-                    dim=2,
-                )
+    curr_target = batch_data["forecast"][:, :, 0, ...].to(device)
+    curr_batch_loss = F.mse_loss(forecast_hat, curr_target)
 
-        forecast_hat = model(curr_batch)
+    loss += curr_batch_loss.item()
+    n_samples_x_steps += curr_batch["ts"].shape[0]
 
-        curr_target = batch_data["forecast"][:, :, step, ...].to(device)
+    timestamp = np.datetime_as_string(
+        batch_metadata["timestamps_targets"][0][0], unit="s"
+    )
 
-        curr_batch_loss = F.mse_loss(forecast_hat, curr_target)
-
-        loss += curr_batch_loss.item()
-        n_samples_x_steps += curr_batch["ts"].shape[0]
-
-        timestamp = np.datetime_as_string(
-            batch_metadata["timestamps_targets"][0][step], unit="s"
+    # Ground truth
+    data_returned.append(
+        SDOImage(
+            channel="aia94",
+            data=curr_target.to(dtype=torch.float32)
+            .cpu()[0, SDO_CHANNELS.index("aia94")]
+            .numpy(),
+            timestamp=timestamp,
+            type="gt",
         )
+    )
 
-        data_returned.append(
-            SDOImage(
-                channel="aia94",
-                data=forecast_hat.to(dtype=torch.float32)
-                .cpu()[0, SDO_CHANNELS.index("aia94")]
-                .numpy(),
-                timestamp=timestamp,
-                type="output",
-            )
+    # Prediction
+    data_returned.append(
+        SDOImage(
+            channel="aia94",
+            data=forecast_hat.to(dtype=torch.float32)
+            .cpu()[0, SDO_CHANNELS.index("aia94")]
+            .numpy(),
+            timestamp=timestamp,
+            type="pred",
         )
+    )
 
     loss = loss / n_samples_x_steps
 
     return loss, data_returned
 
+def visualize_batch_from_dataloader(
+    model,
+    dataloader,
+    device="cuda",
+    rollout=1,
+    save_path="surya_predictions.png",
+):
+    """
+    Visualize a single batch from an existing dataloader.
+    Avoids rebuilding dataset/dataloader and avoids a second full inference loop.
+    """
+    model.to(device)
+    model.eval()
+
+    batch_data, batch_metadata = next(iter(dataloader))
+
+    with torch.no_grad():
+        if torch.cuda.is_available() and str(device).startswith("cuda"):
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                batch_loss, plot_data = batch_step(
+                    model,
+                    batch_data,
+                    batch_metadata,
+                    device,
+                    rollout=rollout,
+                )
+        else:
+            batch_loss, plot_data = batch_step(
+                model,
+                batch_data,
+                batch_metadata,
+                device,
+                rollout=rollout,
+            )
+
+    # Reuse existing plotting logic by wrapping single sample in a list
+    plot_predictions(
+        [plot_data],
+        dataloader.dataset,
+        save_path=save_path,
+        n_rows=1,
+    )
+
+    return batch_loss
 
 def collect_predictions(
     model,
@@ -235,23 +278,30 @@ def plot_predictions(
 
     fig, ax = plt.subplots(n_rows, 4, figsize=(16, 4 * n_rows))
 
+    if n_rows == 1:
+        ax = np.expand_dims(ax, axis=0)
+
     for j in range(n_rows):
-
         for i in range(4):
-
             ax[j, i].axis("off")
-
             ax[j, i].imshow(
                 plot_data[j][i].data,
                 **plt_kwargs,
             )
 
-            ax[j, i].set_title(
-                f"{plot_data[j][i].type.capitalize()} - {plot_data[j][i].timestamp}"
-            )
+            if i == 0:
+                title = f"Input - {plot_data[j][i].timestamp}"
+            elif i == 1:
+                title = f"Input - {plot_data[j][i].timestamp}"
+            elif i == 2:
+                title = f"GT - {plot_data[j][i].timestamp}"
+            else:
+                title = f"Pred - {plot_data[j][i].timestamp}"
 
-    fig.suptitle("Surya Predictions - AIA94", y=0.9)
+            ax[j, i].set_title(title)
 
+    fig.suptitle("Surya Predictions - AIA94", y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(save_path, dpi=120, bbox_inches="tight")
 
     logger.info("Saved visualization to %s", save_path)

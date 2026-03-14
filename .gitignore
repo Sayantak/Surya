@@ -214,3 +214,4 @@ downstream_examples/*/assets/
 
 # Outputs
 outputs/
+pretext_experiments/log.txt
