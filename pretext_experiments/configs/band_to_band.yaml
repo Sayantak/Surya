@@ -1,0 +1,7 @@
+objective: random_band_masking
+
+band_to_band:
+  min_masked_channels: 1
+  max_masked_channels: 3
+  mask_all_timesteps: true
+  include_hmi_as_target: false

@@ -10,6 +10,9 @@ import torch
 from torch.utils.data import DataLoader
 import yaml
 
+import pandas as pd
+from torch.utils.data import Subset
+
 from surya.utils.distributed import get_rank, set_global_seed
 from surya.utils.data import build_scalers, custom_collate_fn
 from surya.models.helio_spectformer import HelioSpectFormer
@@ -197,6 +200,72 @@ def _build_eval_dataloader(
         collate_fn=custom_collate_fn,
     )
 
+def _build_split_eval_dataloader(
+    *,
+    full_index_csv: Path,
+    allowed_index_csv: Path,
+    dataset_root: Path,
+    config: dict[str, Any],
+    scalers: dict[str, Any],
+    num_workers: int,
+    pin_memory: bool,
+    rollout_steps: int,
+    phase: str = "valid",
+) -> DataLoader:
+    """
+    Build an evaluation dataloader using full_index.csv for temporal context,
+    but only score samples whose reference timestep belongs to allowed_index_csv
+    (e.g. val_index.csv or test_index.csv).
+    """
+    ds = _build_dataset(
+        index_csv=full_index_csv,
+        dataset_root=dataset_root,
+        config=config,
+        scalers=scalers,
+        rollout_steps=rollout_steps,
+        phase=phase,
+    )
+
+    allowed_df = pd.read_csv(allowed_index_csv)
+    if "timestep" not in allowed_df.columns:
+        raise ValueError(f"Missing 'timestep' column in {allowed_index_csv}")
+    allowed_times = set(pd.to_datetime(allowed_df["timestep"]))
+
+    full_df = pd.read_csv(full_index_csv)
+    full_times = pd.to_datetime(full_df["timestep"])
+
+    if not hasattr(ds, "valid_indices"):
+        raise AttributeError(
+            "HelioNetCDFDataset does not expose 'valid_indices'. "
+            "You need to inspect helio.py and adapt this helper to the dataset's internal field name."
+        )
+
+    # ds.valid_indices are the candidate row indices in full_index.csv that survived context filtering
+    keep_positions = []
+    for subset_pos, ts in enumerate(ds.valid_indices):
+        ts = pd.to_datetime(ts)
+        if ts in allowed_times:
+            keep_positions.append(subset_pos)
+
+    if len(keep_positions) == 0:
+        raise RuntimeError(
+            f"No valid evaluation samples remain after restricting {allowed_index_csv} "
+            f"against context from {full_index_csv}."
+        )
+
+    subset = Subset(ds, keep_positions)
+
+    return DataLoader(
+        subset,
+        shuffle=False,
+        batch_size=1,
+        num_workers=num_workers,
+        prefetch_factor=None if num_workers == 0 else 2,
+        pin_memory=pin_memory,
+        drop_last=False,
+        collate_fn=custom_collate_fn,
+    )
+
 def _coerce_includes(date: str, hour_prefix: str, includes: List[str] | None) -> List[str]:
     """
     Build the restrictive include list used for download when --prepare-data is set.
@@ -296,6 +365,37 @@ def _set_trainable_params(model: torch.nn.Module, mode: str, logger: Any) -> Non
     preview = unfrozen_names[:20]
     logger.info("Unfrozen param examples (up to 20): %s", preview)
 
+def evaluate_loss(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    objective,
+    device: torch.device,
+) -> float:
+    model.eval()
+
+    total_loss = 0.0
+    total_batches = 0
+
+    with torch.no_grad():
+        for batch_data, batch_metadata in dataloader:
+            batch_data = {
+                k: v.to(device, non_blocking=True) if torch.is_tensor(v) else v
+                for k, v in batch_data.items()
+            }
+
+            if device.type == "cuda":
+                with torch.cuda.amp.autocast():
+                    loss, _ = objective.compute_loss(model, batch_data)
+            else:
+                loss, _ = objective.compute_loss(model, batch_data)
+
+            total_loss += float(loss.detach().cpu().item())
+            total_batches += 1
+
+    if total_batches == 0:
+        raise RuntimeError("Evaluation dataloader produced zero batches.")
+
+    return total_loss / total_batches
 
 # ------------------------------------------------------------
 # Main
@@ -486,6 +586,12 @@ def main() -> None:
         help="Optional output image path. If empty, saves into the run directory."
     )
 
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Skip training and only evaluate the loaded checkpoint."
+    )
+
     args = parser.parse_args()
 
     # ------------------------------------------------------------
@@ -639,6 +745,30 @@ def main() -> None:
         pin_memory=(args.device == "cuda" and torch.cuda.is_available()),
         rollout_steps=int(args.rollout_steps),
     )
+    
+    val_dl = _build_split_eval_dataloader(
+        full_index_csv=Path(args.full_index_csv),
+        allowed_index_csv=val_index_csv,
+        dataset_root=dataset_root,
+        config=config,
+        scalers=scalers,
+        num_workers=args.num_workers,
+        pin_memory=(args.device == "cuda" and torch.cuda.is_available()),
+        rollout_steps=int(args.rollout_steps),
+        phase="valid",
+    )
+
+    test_dl = _build_split_eval_dataloader(
+        full_index_csv=Path(args.full_index_csv),
+        allowed_index_csv=test_index_csv,
+        dataset_root=dataset_root,
+        config=config,
+        scalers=scalers,
+        num_workers=args.num_workers,
+        pin_memory=(args.device == "cuda" and torch.cuda.is_available()),
+        rollout_steps=int(args.rollout_steps),
+        phase="test",
+    )
 
     viz_dl = None
     if args.visualize:
@@ -665,6 +795,44 @@ def main() -> None:
             rollout_steps=int(args.rollout_steps),
             phase=viz_phase,
         )
+
+    # ------------------------------------------------------------
+    # Eval-only mode
+    # ------------------------------------------------------------
+    if args.eval_only:
+        logger.info("Running in eval-only mode (no training).")
+
+        eval_device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+        model.to(eval_device)
+
+        objective = TimeAdvancementObjective(reduce="mean")
+
+        val_loss = evaluate_loss(model, val_dl, objective, eval_device)
+        test_loss = evaluate_loss(model, test_dl, objective, eval_device)
+
+        logger.info("Validation loss: %.6f", val_loss)
+        logger.info("Test loss: %.6f", test_loss)
+
+        if args.visualize and viz_dl is not None:
+            viz_save_path = (
+                Path(args.viz_save_path)
+                if args.viz_save_path.strip()
+                else Path(run_dir) / "prediction_samples.png"
+            )
+
+            batch_loss = visualize_batch_from_dataloader(
+                model=model,
+                dataloader=viz_dl,
+                device=eval_device,
+                rollout=int(args.rollout_steps),
+                save_path=str(viz_save_path),
+            )
+
+            logger.info("Visualization saved to: %s", viz_save_path)
+            logger.info("Visualization batch loss: %.6f", batch_loss)
+
+        print("Eval-only run complete.")
+        return
 
     # ------------------------------------------------------------
     # Trainer
@@ -715,6 +883,15 @@ def main() -> None:
     )
 
     logger.info("Finished. Final checkpoint: %s", final_ckpt)
+
+    eval_device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    model.to(eval_device)
+
+    val_loss = evaluate_loss(model, val_dl, objective, eval_device)
+    test_loss = evaluate_loss(model, test_dl, objective, eval_device)
+
+    logger.info("Validation loss: %.6f", val_loss)
+    logger.info("Test loss: %.6f", test_loss)
 
     if args.visualize and viz_dl is not None:
         viz_save_path = (
