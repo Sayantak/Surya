@@ -73,7 +73,6 @@ def _build_model_from_config(config: dict[str, Any]) -> HelioSpectFormer:
     )
     return model
 
-
 def _load_weights_strict(model: torch.nn.Module, weights_path: Path, device: str) -> None:
     if not weights_path.exists():
         raise FileNotFoundError(f"Baseline weights not found: {weights_path}")
@@ -83,8 +82,13 @@ def _load_weights_strict(model: torch.nn.Module, weights_path: Path, device: str
     except TypeError:
         weights = torch.load(weights_path, map_location=torch.device(device))
 
-    model.load_state_dict(weights, strict=True)
+    # Handle both:
+    # 1) raw model state_dict
+    # 2) training checkpoint dict with "model_state"
+    if isinstance(weights, dict) and "model_state" in weights:
+        weights = weights["model_state"]
 
+    model.load_state_dict(weights, strict=True)
 
 def _coerce_includes(date: str, hour_prefix: str, includes: List[str] | None) -> List[str]:
     if includes:
@@ -335,7 +339,7 @@ def _build_eval_dataloader(
         drop_last=False,
         collate_fn=custom_collate_fn,
     )
-    return dl, wrapped_ds
+    return dl, subset
 
 
 def evaluate_loss(
@@ -357,7 +361,7 @@ def evaluate_loss(
             }
 
             if device.type == "cuda":
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast("cuda"):
                     loss, _ = objective.compute_loss(model, batch_data)
             else:
                 loss, _ = objective.compute_loss(model, batch_data)
@@ -410,7 +414,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--log-every", type=int, default=10)
-    parser.add_argument("--ckpt-every", type=int, default=200)
+    parser.add_argument("--ckpt-every", type=int, default=400)
 
     parser.add_argument("--runs-dir", type=str, default="pretext_experiments/outputs/runs")
     parser.add_argument("--run-name", type=str, default="")
@@ -433,6 +437,7 @@ def main() -> None:
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--viz-batches", type=int, default=8)
     parser.add_argument("--viz-save-path", type=str, default="")
+    parser.add_argument("--viz-input-channels", type=int, default=3)
 
     args = parser.parse_args()
 
@@ -583,12 +588,11 @@ def main() -> None:
                 model,
                 val_ds,
                 all_channels=all_channels,
-                input_channels=input_channels,
-                target_channels=target_channels,
                 device=args.device if (args.device == "cpu" or torch.cuda.is_available()) else "cpu",
                 n_batches=args.viz_batches,
+                max_input_channels_to_show=args.viz_input_channels,
                 save_path=str(viz_save_path),
-            )
+        )
             logger.info("Visualization batch loss: %.6f", batch_loss)
             logger.info("Visualization saved to: %s", viz_save_path)
 
@@ -682,10 +686,9 @@ def main() -> None:
             model,
             val_ds,
             all_channels=all_channels,
-            input_channels=input_channels,
-            target_channels=target_channels,
             device=args.device if (args.device == "cpu" or torch.cuda.is_available()) else "cpu",
             n_batches=args.viz_batches,
+            max_input_channels_to_show=args.viz_input_channels,
             save_path=str(viz_save_path),
         )
 

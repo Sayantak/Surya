@@ -20,7 +20,7 @@ class RandomBandMaskingObjective:
     """
 
     reduce: str = "mean"
-    debug_once: bool = True
+    debug_once: bool = False
     _debug_printed: bool = field(default=False, init=False, repr=False)
 
     def compute_loss(
