@@ -61,7 +61,7 @@ class Trainer:
         self.scaler: torch.cuda.amp.GradScaler | None = None
         # In smoke-test mode, we never backprop, so scaler is unnecessary.
         if (not self.cfg.smoke_test) and self.cfg.use_amp and self.device.type == "cuda":
-            self.scaler = torch.cuda.amp.GradScaler()
+            self.scaler = torch.amp.GradScaler("cuda")
 
     def _move_batch_to_device(self, batch: Any) -> Any:
         if torch.is_tensor(batch):
@@ -149,7 +149,7 @@ class Trainer:
                         try:
                             autocast_ctx = torch.amp.autocast("cuda")
                         except AttributeError:
-                            autocast_ctx = torch.cuda.amp.autocast()
+                            autocast_ctx = torch.amp.autocast("cuda")
                         with autocast_ctx:
                             loss, metrics = objective.compute_loss(model, batch)
                     else:
@@ -211,7 +211,7 @@ class Trainer:
             optimizer.zero_grad(set_to_none=True)
 
             if self.scaler is not None:
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast("cuda"):
                     loss, metrics = objective.compute_loss(model, batch)
                 if loss.dim() != 0:
                     raise ValueError(f"Loss must be scalar tensor; got shape={tuple(loss.shape)}")
