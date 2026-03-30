@@ -215,3 +215,6 @@ downstream_examples/*/assets/
 # Outputs
 outputs/
 pretext_experiments/log.txt
+
+# Code Inclusion
+!pretext_experiments/pretext/data/
