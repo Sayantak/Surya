@@ -10,7 +10,7 @@ import torch
 from surya.utils.data import build_scalers
 from surya.utils.distributed import get_rank, set_global_seed
 
-from pretext_experiments.pretext.eval.surya_viz import visualize_batch_from_dataloader
+from pretext_experiments.pretext.eval.time_adv_viz import visualize_batch_from_dataloader
 from pretext_experiments.pretext.objectives.time_advancement import TimeAdvancementObjective
 from pretext_experiments.pretext.pipelines.common import (
     build_dataloader,
