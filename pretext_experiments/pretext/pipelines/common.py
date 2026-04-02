@@ -338,7 +338,7 @@ def build_split_eval_dataloader(
     but only evaluating samples in allowed_index_csv.
     """
 
-    # 1. Build full dataset (for temporal context)
+    # Build full dataset (for temporal context)
     ds = dataset_builder_fn(
         index_csv=full_index_csv,
         dataset_root=dataset_root,
@@ -348,14 +348,14 @@ def build_split_eval_dataloader(
         rollout_steps=rollout_steps,
     )
 
-    # 2. Load allowed timestamps
+    # Load allowed timestamps
     allowed_df = pd.read_csv(allowed_index_csv)
     if "timestep" not in allowed_df.columns:
         raise ValueError(f"Missing 'timestep' column in {allowed_index_csv}")
 
     allowed_times = set(pd.to_datetime(allowed_df["timestep"]))
 
-    # 3. Filter dataset positions
+    # Filter dataset positions
     if not hasattr(ds, "valid_indices"):
         raise AttributeError("Dataset must expose 'valid_indices'")
 
@@ -371,7 +371,7 @@ def build_split_eval_dataloader(
 
     subset = Subset(ds, keep_positions)
 
-    # 4. Build dataloader
+    # Build dataloader
     return build_dataloader(
         subset,
         batch_size=1,

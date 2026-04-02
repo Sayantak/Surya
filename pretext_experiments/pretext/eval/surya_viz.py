@@ -15,7 +15,6 @@ from surya.utils.data import custom_collate_fn
 
 logger = logging.getLogger(__name__)
 
-# Same channel ordering used by Surya test
 SDO_CHANNELS = [
     "aia94",
     "aia131",

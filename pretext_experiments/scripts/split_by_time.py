@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Split a Surya index CSV into train/val/test splits using time-based blocks.
 

@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/data/util.py
 from __future__ import annotations
 
 import re
@@ -432,7 +431,6 @@ def prepare_sdo_data_for_run(
         )
     )
 
-    # Ensure split uses the index we just produced
     split_params = SplitParams(
         index_csv=full_index_csv,
         out_dir=split_params.out_dir,

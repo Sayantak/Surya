@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/data/s3_download.py
 from __future__ import annotations
 
 import os
@@ -62,12 +61,9 @@ def _find_aws_cli() -> str:
         for name in ("aws.exe", "aws.cmd", "aws.bat", "aws"):
             p = shutil.which(name)
             if p:
-                # Guard: ensure it looks like something Windows can execute
                 ext = Path(p).suffix.lower()
                 if ext in (".exe", ".cmd", ".bat"):
                     return p
-                # If it's extension-less, still try it (could be aws.exe via PATHEXT),
-                # but only if the file exists.
                 if ext == "" and Path(p).exists():
                     return p
 
@@ -159,7 +155,6 @@ def format_cmd_powershell(cmd: Sequence[str]) -> str:
     PowerShell quoting rules are different; this is mainly for debugging display.
     """
     def ps_quote(s: str) -> str:
-        # Wrap in double quotes, escape embedded double quotes
         if re.search(r"[ \t\"']", s):
             return '"' + s.replace('"', '`"') + '"'
         return s

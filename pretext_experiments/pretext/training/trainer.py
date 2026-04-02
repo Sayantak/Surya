@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/training/trainer.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,7 +43,7 @@ class Trainer:
         *,
         run_dir: str | Path,
         config: TrainerConfig,
-        logger: Any,  # logging.Logger
+        logger: Any,
         metrics_logger: JsonlLogger | None = None,
     ) -> None:
         self.run_dir = Path(run_dir)

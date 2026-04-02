@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# pretext_experiments/scripts/download_sdo_s3.py
-
 from __future__ import annotations
 
 import argparse

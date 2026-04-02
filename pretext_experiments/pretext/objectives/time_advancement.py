@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/objectives/time_advancement.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,14 +50,12 @@ class TimeAdvancementObjective:
         time_delta_input = batch_data["time_delta_input"]
         forecast = batch_data["forecast"]
 
-        # Match test_surya.py step==0 call pattern
         curr_batch = {
             "ts": ts,
             "time_delta_input": time_delta_input,
         }
         forecast_hat = model(curr_batch)
 
-        # Match test_surya.py curr_target = batch_data["forecast"][:, :, step, ...]
         target = forecast
         if isinstance(forecast, torch.Tensor) and forecast.ndim >= 3:
             # forecast expected as [B, C, L, H, W] (or [B, C, L, ...])

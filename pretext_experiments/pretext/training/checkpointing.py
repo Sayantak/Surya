@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/training/checkpointing.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -122,7 +121,6 @@ def save_checkpoint(
     }
 
     if is_dist_avail_and_initialized():
-        # save_state_singular does barrier() for us
         save_state_singular(obj, str(ckpt_path))
     else:
         if is_main_process():

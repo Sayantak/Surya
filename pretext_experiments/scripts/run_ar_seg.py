@@ -51,7 +51,7 @@ def _import_helio_spectformer_2d():
             return module.HelioSpectformer2D
         except Exception as e:
             last_err = e
-    raise ImportError("Could not import HelioSpectformer2D from your downstream models.py.") from last_err
+    raise ImportError("Could not import HelioSpectformer2D from downstream models.py.") from last_err
 
 
 HelioSpectformer2D = _import_helio_spectformer_2d()

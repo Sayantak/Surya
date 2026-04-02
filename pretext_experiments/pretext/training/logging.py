@@ -1,4 +1,3 @@
-# pretext_experiments/pretext/training/logging.py
 from __future__ import annotations
 
 import json
@@ -22,9 +21,6 @@ def setup_surya_logger(
     """
     Create a Surya-style logger writing to:
       <run_dir>/<name>.log
-
-    Surya's create_logger only prints to console if name ends with "main".
-    So keep the default name ending with "main" if you want console output.
     """
     run_dir_path = Path(run_dir)
     run_dir_path.mkdir(parents=True, exist_ok=True)

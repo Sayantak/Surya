@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Build a Surya-compatible index CSV from locally available NetCDF (*.nc) files.
 

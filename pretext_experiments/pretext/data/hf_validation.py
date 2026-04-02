@@ -1,11 +1,3 @@
-"""
-Utilities for downloading and locating Surya-related datasets and model artifacts from Hugging Face.
-
-This module is intentionally lightweight and self-contained so that scripts under
-`pretext_experiments/scripts/` can rely on it without pulling in the rest of the
-training stack.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -190,8 +182,7 @@ def ensure_ar_segmentation_data(
     """
     Ensure the SuryaBench AR segmentation dataset is present locally.
 
-    For robustness, this downloads the full dataset snapshot.
-    The dataset is small enough (~1.2 GB) that this is simpler and avoids
+    For robustness, this downloads the full dataset snapshot: Avoids
     missing-mask issues from pattern mismatches.
     """
     if allow_patterns is not None:
