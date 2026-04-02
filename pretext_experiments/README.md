@@ -47,15 +47,15 @@ Variants:
 
 ### 1. Clone repository
 
-git clone https://github.com/Sayantak/Surya/tree/main \
+git clone https://github.com/Sayantak/Surya/tree/main
 cd pretext_experiments
 
 ### 2. Install dependencies (recommended: uv)
 
-curl -LsSf https://astral.sh/uv/install.sh | sh \
+curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc
 
-uv sync \
+uv sync
 source .venv/bin/activate
 
 ---
