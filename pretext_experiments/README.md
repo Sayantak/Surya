@@ -55,12 +55,12 @@ cd pretext_experiments
 ### 2. Install dependencies (recommended: uv)
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh \
+curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc
 ```
 
 ```bash
-uv sync \
+uv sync
 source .venv/bin/activate
 ```
 
@@ -125,13 +125,13 @@ uv run python -u pretext_experiments/scripts/run_time_advancement.py
 ### Active Region Segmentation (Downstream)
 
 ```bash
-uv run python -u pretext_experiments/scripts/run_ar_seg.py \
-  --prepare-sdo-data \
-  --prepare-ar-data \
-  --download-date 20241129 \
-  --restrict-date 20241129 \
-  --init-ckpt <checkpoint.pt> \
-  --finetune-mode full \
+uv run python -u pretext_experiments/scripts/run_ar_seg.py
+  --prepare-sdo-data
+  --prepare-ar-data
+  --download-date 20241129
+  --restrict-date 20241129
+  --init-ckpt <checkpoint.pt>
+  --finetune-mode full
   --n-steps 500
 ```
 
