@@ -1,9 +1,3 @@
-"""
-Split a Surya index CSV into train/val/test splits using time-based blocks.
-
-This script is a CLI wrapper around the splitting utilities in util.py.
-"""
-
 from __future__ import annotations
 
 import argparse

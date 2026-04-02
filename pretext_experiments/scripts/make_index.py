@@ -1,9 +1,3 @@
-"""
-Build a Surya-compatible index CSV from locally available NetCDF (*.nc) files.
-
-This script is a thin CLI wrapper around the indexing utilities in util.py.
-"""
-
 from __future__ import annotations
 
 import argparse
