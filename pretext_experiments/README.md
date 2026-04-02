@@ -47,16 +47,22 @@ Variants:
 
 ### 1. Clone repository
 
+```bash
 git clone https://github.com/Sayantak/Surya/tree/main
 cd pretext_experiments
+```
 
 ### 2. Install dependencies (recommended: uv)
 
-curl -LsSf https://astral.sh/uv/install.sh | sh
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh \
 source ~/.bashrc
+```
 
-uv sync
+```bash
+uv sync \
 source .venv/bin/activate
+```
 
 ---
 
@@ -78,21 +84,25 @@ Splits:
 
 ### Time Advancement (Pretraining)
 
-uv run python -u pretext_experiments/scripts/run_time_advancement.py \
-  --prepare-data \
-  --download-date 20241231 \
+```bash
+uv run python -u pretext_experiments/scripts/run_time_advancement.py
+  --prepare-data
+  --download-date 20241231
   --n-steps 500
+```
 
 ---
 
 ### Band-to-Band (Pretraining)
 
-uv run python -u pretext_experiments/scripts/run_band_to_band.py \
-  --prepare-data \
-  --download-date 20241231 \
-  --min-masked-channels 1 \
-  --max-masked-channels 3 \
+```bash
+uv run python -u pretext_experiments/scripts/run_band_to_band.py
+  --prepare-data
+  --download-date 20241231
+  --min-masked-channels 1
+  --max-masked-channels 3
   --n-steps 500
+```
 
 AIA-only variant:
 
@@ -102,16 +112,19 @@ AIA-only variant:
 
 ### Evaluate Original Surya Checkpoint
 
-uv run python -u pretext_experiments/scripts/run_time_advancement.py \
-  --prepare-data \
-  --download-date 20241231 \
-  --eval-only \
+```bash
+uv run python -u pretext_experiments/scripts/run_time_advancement.py
+  --prepare-data
+  --download-date 20241231
+  --eval-only
   --model-dir pretext_experiments/data/Surya-1.0
+```
 
 ---
 
 ### Active Region Segmentation (Downstream)
 
+```bash
 uv run python -u pretext_experiments/scripts/run_ar_seg.py \
   --prepare-sdo-data \
   --prepare-ar-data \
@@ -120,6 +133,7 @@ uv run python -u pretext_experiments/scripts/run_ar_seg.py \
   --init-ckpt <checkpoint.pt> \
   --finetune-mode full \
   --n-steps 500
+```
 
 ---
 
